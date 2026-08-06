@@ -21,29 +21,56 @@ struct TableScreen: View {
     /// player's cards still and puts every dock's buttons on one baseline.
     private let dockHeight: CGFloat = 114
 
+    /// Sized off the *betting* chrome even while the chrome is away, so the table
+    /// keeps one height all round. When the wordmark clears out the slab drifts up
+    /// into the gap rather than stretching into it — the cards hold their place.
+    private func slabHeight(in available: CGFloat) -> CGFloat {
+        let reserved: CGFloat = 12 + 44 + 108 + 8 + countHeight + 6
+            + 8 + countHeight + 6 + dockHeight + 14
+        return max(280, available - reserved)
+    }
+
+    /// Both counts get the same row height, so the table sits centred between them.
+    private let countHeight: CGFloat = 34
+
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                header
+                    .padding(.horizontal, 18)
+                    .padding(.top, 12)
+
+                tableChrome
+                    .frame(height: chromeHeight)
+
+                FeltNameplate(name: "Dealer", total: game.visibleDealerTotal, tint: theme.pillTint)
+                    .frame(height: countHeight)
+                    .padding(.top, 8)
+
+                TableSlabView(game: game)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 6)
+                    .frame(height: slabHeight(in: proxy.size.height) + 6)
+
+                // The count and the round's message share a row. Stacked, they were
+                // two centred pills a few points apart saying different halves of
+                // the same thing — and the space they cost came out of the cards.
+                HStack(spacing: 8) {
+                    FeltNameplate(name: "You", total: game.visiblePlayerTotal, tint: theme.accentTint)
+                    statusLine
+                }
+                .frame(height: countHeight)
                 .padding(.horizontal, 18)
-                .padding(.top, 12)
+                .padding(.top, 8)
 
-            tableChrome
-                .frame(height: chromeHeight)
+                Spacer(minLength: 0)
 
-            DealerArea(game: game)
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
-
-            felt
-
-            PlayerArea(game: game)
-                .padding(.horizontal, 18)
-
-            dock
-                .frame(height: dockHeight, alignment: .bottom)
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-                .padding(.bottom, 8)
+                dock
+                    .frame(height: dockHeight, alignment: .bottom)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
+            }
         }
         .animation(.snappy(duration: 0.35), value: game.phase)
         .overlay {
@@ -77,7 +104,12 @@ struct TableScreen: View {
                 }
             }
 
-            Spacer(minLength: 4)
+            if game.recentOutcomes.isEmpty {
+                Spacer(minLength: 4)
+            } else {
+                StreakRail(outcomes: game.recentOutcomes, net: game.sessionNet)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
 
             GlassIconButton(
                 systemImage: "square.grid.2x2.fill",
@@ -86,6 +118,21 @@ struct TableScreen: View {
                 action: { screen = .hub }
             )
         }
+        .animation(.snappy(duration: 0.3), value: game.recentOutcomes)
+    }
+
+    /// Was a bare line under the player's cards; now a pill, because the cards it
+    /// used to sit under have moved onto the slab.
+    private var statusLine: some View {
+        Text(game.statusLine)
+            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .foregroundStyle(game.phase == .betting ? theme.primaryColor : theme.textDark)
+            .contentTransition(.numericText())
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 5)
+            .glassCapsule(game.phase == .betting ? theme.accentTint : theme.glassTint)
     }
 
     /// Both pieces clear out of the way once cards are on the felt. They fade and
@@ -182,24 +229,6 @@ struct TableScreen: View {
         .accessibilityLabel("Table: \(game.preset.name), \(game.preset.limitsLabel)")
     }
 
-    // MARK: Felt
-
-    private var felt: some View {
-        ZStack {
-            if !game.betStack.isEmpty {
-                BetChipStack(
-                    chips: game.betStack,
-                    total: game.player.currentBet,
-                    isClearable: game.phase == .betting,
-                    sweep: game.chipSweep,
-                    onClear: game.clearBet
-                )
-                .transition(.opacity)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     // MARK: Dock
 
     @ViewBuilder
@@ -217,6 +246,94 @@ struct TableScreen: View {
             RoundOverDock(game: game, screen: $screen)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+    }
+}
+
+/// How the session is going, at a glance: the last five hands as beads plus what
+/// they add up to. Fills the dead space the header used to leave between the
+/// balance and the hub button.
+private struct StreakRail: View {
+    @Environment(\.theme) private var theme
+
+    let outcomes: [RoundOutcome]
+    let net: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("LAST \(outcomes.count)")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .kerning(0.8)
+                .foregroundStyle(theme.textMid)
+
+            HStack(spacing: 4) {
+                ForEach(Array(outcomes.enumerated()), id: \.offset) { _, outcome in
+                    OutcomeBead(outcome: outcome)
+                }
+
+                Text(net.signedMoney)
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(net < 0 ? Color(hex: 0xA32C3B) : Color(hex: 0x1E7A36))
+                    .contentTransition(.numericText())
+                    .padding(.leading, 3)
+            }
+        }
+        .padding(.horizontal, 11)
+        .frame(height: 44)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCapsule(theme.glassTint)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Last \(outcomes.count) hands, \(net.signedMoney) overall")
+    }
+}
+
+/// One hand, as a bead the same family as the chips.
+private struct OutcomeBead: View {
+    let outcome: RoundOutcome
+
+    private var letter: String {
+        switch outcome {
+        case .blackjack: "B"
+        case .win: "W"
+        case .push: "P"
+        case .loss, .bust: "L"
+        }
+    }
+
+    private var colour: Color {
+        switch outcome {
+        case .blackjack: Color(hex: 0x00A79E)
+        case .win: Color(hex: 0x34C759)
+        case .push: Color(hex: 0xAAB2B9)
+        case .loss, .bust: Color(hex: 0xD84A5A)
+        }
+    }
+
+    var body: some View {
+        Text(letter)
+            .font(.system(size: 8, weight: .black, design: .rounded))
+            .foregroundStyle(outcome == .push ? Color(hex: 0x3C3C43, opacity: 0.7) : .white)
+            .frame(width: 15, height: 15)
+            .background {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Color.white.opacity(0.9), colour.opacity(0.9), colour],
+                            center: UnitPoint(x: 0.32, y: 0.26),
+                            startRadius: 0,
+                            endRadius: 13
+                        )
+                    )
+                    .overlay {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.clear, Color.white.opacity(0.4)],
+                                    startPoint: .center, endPoint: .bottom
+                                )
+                            )
+                    }
+            }
     }
 }
 
@@ -258,119 +375,125 @@ private struct GrantCountdown: View {
     }
 }
 
-// MARK: - Dealer
+// MARK: - The table
 
-private struct DealerArea: View {
+/// §4 / design 1A — the felt as one slab of glass with the house rules etched into
+/// it. Everything that used to be three stacked blocks (dealer row, bet, player row)
+/// now lives on this one surface, placed against the printed markings the way it
+/// would be on a real table.
+private struct TableSlabView: View {
     @ObservedObject var game: BlackjackGame
     @Environment(\.theme) private var theme
 
-    var body: some View {
-        VStack(spacing: 11) {
-            ZStack {
-                HandTitle(name: "Dealer", total: game.visibleDealerTotal, tint: theme.pillTint)
+    /// The printed rules always get this much of the middle. Smaller since the
+    /// betting circle left — the chips sit on the printing now, not below it.
+    private let bandHeight: CGFloat = 150
+    /// With both counts now above and below the slab, nothing sits in the corners
+    /// for the cards to run into, so the hands start close to the dealer's edge.
+    private let topInset: CGFloat = 20
+    private let bottomInset: CGFloat = 10
 
-                HStack {
-                    Spacer(minLength: 0)
-                    ShoeIndicator(
-                        count: game.shoeCountLabel,
-                        fraction: game.shoeRemainingFraction
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity)
-
-            HandCardsView(
-                cards: game.dealerHand.cards,
-                hiddenIndex: game.dealerHoleRevealed ? nil : 1,
-                emptySymbol: "rectangle.stack.fill"
-            )
-        }
+    /// Card height is whatever the slab can spare once the band has its share. Both
+    /// hands change together, so the table stays symmetrical on every screen size.
+    private func cardHeight(for slabHeight: CGFloat) -> CGFloat {
+        min(max((slabHeight - topInset - bottomInset - bandHeight) / 2, 78), 125)
     }
-}
-
-/// §5 — the card count is deliberately visible, as a number and as a bar.
-private struct ShoeIndicator: View {
-    @Environment(\.theme) private var theme
-
-    let count: String
-    let fraction: Double
-
-    private var clamped: Double { min(max(fraction, 0), 1) }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(count)
-                .font(.system(size: 11, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(theme.textMid)
-                .contentTransition(.numericText())
+        GeometryReader { proxy in
+            let size = proxy.size
+            let cardH = cardHeight(for: size.height)
+            let cardW = cardH / 1.42
+            let bandTop = topInset + cardH
+            let playerCentre = size.height - bottomInset - cardH / 2
 
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.white.opacity(0.55))
-                    .overlay(Capsule().stroke(theme.hairline, lineWidth: 1))
+            ZStack(alignment: .topLeading) {
+                slab
 
-                GeometryReader { proxy in
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.78), theme.accentColor.opacity(0.62)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(
-                            width: max(4, (proxy.size.width - 4) * clamped),
-                            height: max(3, proxy.size.height - 4)
-                        )
-                        .padding(2)
-                }
-            }
-            .frame(width: 64, height: 10)
-            .animation(.snappy(duration: 0.2), value: clamped)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(count) cards left in the shoe")
-    }
-}
-
-// MARK: - Player
-
-private struct PlayerArea: View {
-    @ObservedObject var game: BlackjackGame
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        VStack(spacing: 11) {
-            if game.playerHands.count <= 1 {
-                HandTitle(name: "You", total: game.visiblePlayerTotal, tint: theme.glassTint)
-                HandCardsView(
-                    cards: game.playerHands.first?.cards ?? [],
-                    hiddenIndex: nil,
-                    emptySymbol: "person.fill"
+                TableMarkings(
+                    width: size.width,
+                    bandTop: bandTop,
+                    rules: game.feltRuleLines
                 )
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
-                        ForEach(Array(game.playerHands.enumerated()), id: \.element.id) { index, hand in
-                            SplitHandView(
-                                index: index,
-                                hand: hand,
-                                isActive: game.phase == .playerTurn && game.activeHandIndex == index
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                }
-                .frame(height: 190)
-            }
 
-            Text(game.statusLine)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(game.phase == .betting ? theme.primaryColor : theme.textMid)
-                .contentTransition(.numericText())
-                .frame(height: 22)
-                .frame(maxWidth: .infinity)
+                // Padding before the frame, not after: padding a view that is already
+                // the full width makes it wider than the slab, and a topLeading ZStack
+                // sizes to its widest child — which pushed the whole table right.
+                ShoeTray(count: game.shoeCountLabel, fraction: game.shoeRemainingFraction)
+                    .padding(.trailing, 12)
+                    .padding(.top, 10)
+                    .frame(width: size.width, alignment: .trailing)
+
+                HandCardsView(
+                    cards: game.dealerHand.cards,
+                    hiddenIndex: game.dealerHoleRevealed ? nil : 1,
+                    cardWidth: cardW,
+                    overlap: cardW / 2,
+                    emptySymbol: "rectangle.stack.fill"
+                )
+                .frame(width: size.width)
+                .position(x: size.width / 2, y: topInset + cardH / 2)
+
+                if !game.betStack.isEmpty {
+                    BetChipStack(
+                        chips: game.betStack,
+                        total: game.player.currentBet,
+                        isClearable: game.phase == .betting,
+                        sweep: game.chipSweep,
+                        onClear: game.clearBet
+                    )
+                    // Tossed onto the printing itself. The pile is narrower than the
+                    // lines it lands on, so the rules still read out either side of it.
+                    .position(x: size.width / 2, y: TableMarkings.rulesCentre(bandTop))
+                    .transition(.opacity)
+                }
+
+                playerHands(width: size.width, cardWidth: cardW, centreY: playerCentre)
+            }
+        }
+    }
+
+    /// One pour of glass. The sheen is a slow highlight travelling across it, so the
+    /// table reads as a surface rather than a panel even while nothing is happening.
+    private var slab: some View {
+        TableSlabShape()
+            .fill(.clear)
+            .glassFelt(theme.glassTint.opacity(0.55), in: TableSlabShape())
+            .overlay {
+                TableSlabShape()
+                    .stroke(theme.hairline, lineWidth: 1)
+            }
+    }
+
+    @ViewBuilder
+    private func playerHands(width: CGFloat, cardWidth: CGFloat, centreY: CGFloat) -> some View {
+        if game.playerHands.count <= 1 {
+            HandCardsView(
+                cards: game.playerHands.first?.cards ?? [],
+                hiddenIndex: nil,
+                cardWidth: cardWidth,
+                overlap: cardWidth / 2,
+                emptySymbol: "person.fill"
+            )
+            .frame(width: width)
+            .position(x: width / 2, y: centreY)
+        } else {
+            // Splits need more room than the slot allows, so they scroll across it.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(Array(game.playerHands.enumerated()), id: \.element.id) { index, hand in
+                        SplitHandView(
+                            index: index,
+                            hand: hand,
+                            cardWidth: cardWidth * 0.82,
+                            isActive: game.phase == .playerTurn && game.activeHandIndex == index
+                        )
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .frame(width: width)
+            .position(x: width / 2, y: centreY)
         }
     }
 }
@@ -380,13 +503,15 @@ private struct SplitHandView: View {
 
     let index: Int
     let hand: Hand
+    var cardWidth: CGFloat = 70
     let isActive: Bool
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             HandTitle(name: "Hand \(index + 1)", total: "\(hand.score.total)", tint: theme.accentTint)
-            HandCardsView(cards: hand.cards, hiddenIndex: nil, cardWidth: 70, overlap: 34)
-                .frame(width: 150, height: 112)
+            HandCardsView(cards: hand.cards, hiddenIndex: nil,
+                          cardWidth: cardWidth, overlap: cardWidth / 2)
+                .frame(width: cardWidth * 2.1)
             Text(hand.bet.money)
                 .font(.system(size: 12, weight: .heavy, design: .rounded))
                 .monospacedDigit()
@@ -438,7 +563,7 @@ struct HandCardsView: View {
     var body: some View {
         ZStack {
             if cards.isEmpty {
-                EmptyHandPlaceholder(symbol: emptySymbol)
+                EmptyHandPlaceholder(symbol: emptySymbol, width: cardWidth)
             }
 
             ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
@@ -460,19 +585,21 @@ private struct EmptyHandPlaceholder: View {
     @Environment(\.theme) private var theme
 
     let symbol: String?
+    /// Matches the card that will land here, so the slot never outgrows the felt.
+    var width: CGFloat = 88
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: width * 0.22, style: .continuous)
                 .strokeBorder(theme.dashColor, style: StrokeStyle(lineWidth: 1.5, dash: [7, 7]))
 
             if let symbol {
                 Image(systemName: symbol)
-                    .font(.system(size: 32, weight: .semibold))
+                    .font(.system(size: width * 0.36, weight: .semibold))
                     .foregroundStyle(theme.ghostColor)
             }
         }
-        .frame(width: 96, height: 125)
+        .frame(width: width, height: width * 1.42)
         .accessibilityHidden(true)
     }
 }
@@ -505,7 +632,7 @@ private struct BettingDock: View {
                     )
 
                     PrimaryAction(
-                        title: "Deal",
+                        title: game.dealLabel,
                         systemImage: "play.fill",
                         tint: theme.accentTint,
                         isEnabled: game.canDeal,

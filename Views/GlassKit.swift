@@ -25,15 +25,30 @@ struct TableBackground: View {
         ZStack {
             theme.shellBackground
 
-            RadialGradient(
-                colors: [
-                    theme.backgroundBlob.opacity(theme.backgroundBlobOpacity),
-                    theme.backgroundBlob.opacity(theme.backgroundBlobOpacity * 0.47),
-                    .clear
+            // The vertical wash: the room's own colour up top, warming toward the
+            // near edge of the table (§4 / design 1A).
+            LinearGradient(
+                stops: [
+                    .init(color: theme.backgroundBlob.opacity(theme.backgroundBlobOpacity * 0.52), location: 0),
+                    .init(color: theme.backgroundBlob.opacity(theme.backgroundBlobOpacity * 0.22), location: 0.4),
+                    .init(color: theme.auroraWarm.opacity(theme.auroraOpacity * 0.14), location: 0.72),
+                    .init(color: theme.auroraWarm.opacity(theme.auroraOpacity * 0.46), location: 1)
                 ],
-                center: UnitPoint(x: -0.04, y: -0.06),
-                startRadius: 12,
-                endRadius: 620
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            // Two blooms, so the wash has structure instead of being a flat ramp.
+            // Radial gradients rather than blurred circles — no filter cost (§11.1).
+            AuroraBloom(
+                color: theme.backgroundBlob.opacity(theme.auroraOpacity * 0.24),
+                centre: UnitPoint(x: 0.06, y: 0.05),
+                radius: 0.72
+            )
+            AuroraBloom(
+                color: theme.auroraCool.opacity(theme.auroraOpacity * 0.20),
+                centre: UnitPoint(x: 1.02, y: 0.2),
+                radius: 0.62
             )
 
             LinearGradient(
@@ -47,6 +62,26 @@ struct TableBackground: View {
             AmbientSparkleLayer(accent: theme.accentColor, density: theme.usesDarkChrome ? 22 : 14)
         }
         .ignoresSafeArea()
+    }
+}
+
+/// One soft bloom of light. `radius` is a fraction of the larger screen dimension.
+private struct AuroraBloom: View {
+    let color: Color
+    let centre: UnitPoint
+    let radius: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let extent = max(proxy.size.width, proxy.size.height) * radius
+
+            RadialGradient(
+                colors: [color, color.opacity(0.35), .clear],
+                center: centre,
+                startRadius: 0,
+                endRadius: extent
+            )
+        }
     }
 }
 
