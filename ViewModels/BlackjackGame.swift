@@ -57,6 +57,9 @@ final class BlackjackGame: ObservableObject {
     @Published private(set) var sessionStack = 0
     @Published private(set) var handsThisSession = 0
     @Published private(set) var sessionNet = 0
+    /// The last five results, oldest first — the header's streak rail. Kept short on
+    /// purpose: it is a glance at how the session is going, not a history.
+    @Published private(set) var recentOutcomes: [RoundOutcome] = []
     @Published private(set) var lastSummary: RoundSummary?
     @Published private(set) var toast: ToastMessage?
     @Published private(set) var ejectMessage: String?
@@ -190,6 +193,32 @@ final class BlackjackGame: ObservableObject {
 
     var rebetLabel: String {
         player.lastBet > 0 ? "Bet \(player.lastBet.money)" : "New bet"
+    }
+
+    /// The Deal button carries the wager, so the amount is confirmed by the thing
+    /// that commits it rather than by a separate readout.
+    var dealLabel: String {
+        player.currentBet > 0 ? "Deal \(player.currentBet.money)" : "Deal"
+    }
+
+    /// The house rules as they are printed on a real felt.
+    var feltRuleLines: (dealer: String, blackjack: String, insurance: String?) {
+        (
+            dealer: rules.dealerHitsSoft17 ? "DEALER MUST HIT SOFT 17" : "DEALER MUST STAND ON 17",
+            blackjack: "BLACKJACK PAYS \(Self.ratio(rules.blackjackPayout))",
+            insurance: rules.allowInsurance ? "INSURANCE PAYS \(Self.ratio(rules.insurancePayout))" : nil
+        )
+    }
+
+    /// 1.5 → "3 TO 2", 2 → "2 TO 1", 1.2 → "6 TO 5".
+    private static func ratio(_ payout: Double) -> String {
+        for denominator in 1...20 {
+            let numerator = payout * Double(denominator)
+            if abs(numerator.rounded() - numerator) < 0.001 {
+                return "\(Int(numerator.rounded())) TO \(denominator)"
+            }
+        }
+        return String(format: "%.2f TO 1", payout)
     }
 
     var canRebet: Bool {
@@ -669,6 +698,10 @@ final class BlackjackGame: ObservableObject {
 
         handsThisSession += 1
         sessionNet += net
+        recentOutcomes.append(outcome)
+        if recentOutcomes.count > 5 {
+            recentOutcomes.removeFirst(recentOutcomes.count - 5)
+        }
 
         FeedbackManager.play(for: outcome)
         SoundManager.shared.play(SoundEffect(outcome: outcome))

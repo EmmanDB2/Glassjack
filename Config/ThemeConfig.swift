@@ -62,6 +62,11 @@ struct ThemeConfig {
     var shellBackground: Color = .white
     var backgroundBlob: Color = Color(hex: 0x00C7BE)
     var backgroundBlobOpacity: Double = 0.17
+    /// §4 / design 1A — the room's light, as two soft blooms either side of the
+    /// table. Cool where the dealer stands, warm at the edge nearest the player.
+    var auroraCool: Color = Color(hex: 0x7AD6FF)
+    var auroraWarm: Color = Color(hex: 0xFFC48C)
+    var auroraOpacity: Double = 0.34
     var backgroundShade: Double = 0.05
     var tableFeltColor: Color = .white
     var usesDarkChrome = false

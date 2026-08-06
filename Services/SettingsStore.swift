@@ -68,10 +68,18 @@ private struct GlassSurface<S: Shape>: ViewModifier {
     let tint: Color
     let shape: S
     let interactive: Bool
+    /// Frosts far less. Meant for surfaces big enough that `.regular` would turn the
+    /// whole screen milky — the table slab is half the display.
+    var isClear = false
 
     func body(content: Content) -> some View {
         if blurEnabled {
-            content.glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
+            let glass = isClear ? Glass.clear.tint(tint) : Glass.regular.tint(tint)
+            content.glassEffect(interactive ? glass.interactive() : glass, in: shape)
+        } else if isClear {
+            content
+                .background(shape.fill(tint))
+                .overlay(shape.stroke(Color.white.opacity(0.55), lineWidth: 1))
         } else {
             content
                 .background(shape.fill(Color.white.opacity(0.55)))
@@ -86,6 +94,11 @@ extension View {
     /// `fullGlassBlur` is off. Use this instead of calling `glassEffect` directly.
     func glassSurface<S: Shape>(_ tint: Color, in shape: S, interactive: Bool = false) -> some View {
         modifier(GlassSurface(tint: tint, shape: shape, interactive: interactive))
+    }
+
+    /// The table itself: barely-there glass, so what is behind it still reads.
+    func glassFelt<S: Shape>(_ tint: Color, in shape: S) -> some View {
+        modifier(GlassSurface(tint: tint, shape: shape, interactive: false, isClear: true))
     }
 
     func glassSurface(_ tint: Color, cornerRadius: CGFloat, interactive: Bool = false) -> some View {
