@@ -371,7 +371,10 @@ struct MultiplayerTableScreen: View {
             applySettlement(settlement)
         }
         .onChange(of: session.connection) { _, connection in
-            if case .failed = connection { screen = .multiplayerLobby }
+            if case .failed = connection {
+                game.refundUnsettledMultiplayerStake()
+                screen = .multiplayerLobby
+            }
         }
     }
 
@@ -404,6 +407,7 @@ struct MultiplayerTableScreen: View {
                 systemImage: "rectangle.portrait.and.arrow.right",
                 accessibilityText: "Leave the table",
                 action: {
+                    game.refundUnsettledMultiplayerStake()
                     session.stop()
                     screen = .hub
                 }
@@ -562,8 +566,9 @@ struct MultiplayerTableScreen: View {
                     tint: theme.accentTint,
                     isEnabled: stagedBet >= snapshot.minimumBet && session.mySeat?.status != .done
                 ) {
-                    game.stakeForMultiplayer(stagedBet)
-                    session.placeBet(stagedBet)
+                    let bet = stagedBet
+                    guard game.stakeForMultiplayer(bet) else { return }
+                    session.placeBet(bet)
                 }
             }
         }
@@ -590,7 +595,7 @@ struct MultiplayerTableScreen: View {
                               isEnabled: canDouble) {
                 // The host doubles the stake on its side; the matching chips come
                 // out of this device's own balance.
-                game.stakeForMultiplayer(session.mySeat?.bet ?? 0)
+                guard game.stakeForMultiplayer(session.mySeat?.bet ?? 0) else { return }
                 session.act(.double)
             }
         }
