@@ -77,6 +77,9 @@ final class BlackjackGame: ObservableObject {
     private var toastTask: Task<Void, Never>?
     private var sweepTask: Task<Void, Never>?
     private var grantTask: Task<Void, Never>?
+    /// Stakes sent to a shared table but not yet settled. This stays with the
+    /// bankroll rather than a view so it can be refunded if the session ends.
+    private var unsettledMultiplayerStake = 0
 
     private let defaults: UserDefaults
     private let balanceKey = "glassjack.player.balance"
@@ -598,7 +601,8 @@ final class BlackjackGame: ObservableObject {
     // MARK: - Settling
 
     private func resolveDealerBlackjack() {
-        var payout = insuranceBet > 0 ? rules.insuranceReturn(for: insuranceBet) : 0
+        let insuranceReturn = insuranceBet > 0 ? rules.insuranceReturn(for: insuranceBet) : 0
+        var payout = insuranceReturn
         var resolved: [ResolvedHand] = []
 
         for (index, hand) in playerHands.enumerated() {
@@ -614,7 +618,7 @@ final class BlackjackGame: ObservableObject {
         credit(payout)
         results = resolved
         roundMessage = insuranceBet > 0 ? "Dealer blackjack · insurance paid" : "Dealer blackjack"
-        endRound()
+        endRound(insuranceReturn: insuranceReturn)
     }
 
     private func settleRound() {
@@ -654,7 +658,7 @@ final class BlackjackGame: ObservableObject {
         endRound()
     }
 
-    private func endRound() {
+    private func endRound(insuranceReturn: Int = 0) {
         isDealing = false
         isOfferingInsurance = false
         insuranceDraft = 0
@@ -664,7 +668,7 @@ final class BlackjackGame: ObservableObject {
 
         let outcome = roundOutcome(for: results)
         let staked = results.reduce(0) { $0 + $1.bet } + insuranceBet
-        let returned = results.reduce(0) { $0 + $1.payout }
+        let returned = results.reduce(0) { $0 + $1.payout } + insuranceReturn
         let net = returned - staked
 
         handsThisSession += 1
@@ -902,16 +906,29 @@ final class BlackjackGame: ObservableObject {
     /// itself never crosses the wire. The stake leaves here when the bet is sent and
     /// the payout comes back here when the host reports the result. A multiplayer
     /// table always plays off the bankroll, never the Fractured session stack.
-    func stakeForMultiplayer(_ amount: Int) {
-        guard amount > 0, player.balance >= amount else { return }
+    @discardableResult
+    func stakeForMultiplayer(_ amount: Int) -> Bool {
+        guard amount > 0, player.balance >= amount else { return false }
         player.balance -= amount
+        unsettledMultiplayerStake += amount
         persistBalance()
         SoundManager.shared.play(.chipBet)
+        return true
     }
 
     func applyMultiplayerResult(payout: Int) {
+        unsettledMultiplayerStake = 0
         guard payout > 0 else { return }
         player.balance += payout
+        persistBalance()
+    }
+
+    /// Returns every stake that has left this device without a settlement. This
+    /// covers leaving a table or losing the host before a result can arrive.
+    func refundUnsettledMultiplayerStake() {
+        guard unsettledMultiplayerStake > 0 else { return }
+        player.balance += unsettledMultiplayerStake
+        unsettledMultiplayerStake = 0
         persistBalance()
     }
 
