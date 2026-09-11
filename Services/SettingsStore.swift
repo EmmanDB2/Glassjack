@@ -7,14 +7,12 @@ final class SettingsStore: ObservableObject {
     @Published var ambientMusicEnabled: Bool { didSet { persist(ambientMusicEnabled, .music) } }
     @Published var followsClock: Bool { didSet { persist(followsClock, .followsClock) } }
     @Published var fullGlassBlur: Bool { didSet { persist(fullGlassBlur, .glassBlur) } }
-    @Published private(set) var hasSupporterPack: Bool
 
     private enum Key: String {
         case haptics = "glassjack.settings.haptics"
         case music = "glassjack.settings.music"
         case followsClock = "glassjack.settings.followsClock"
         case glassBlur = "glassjack.settings.glassBlur"
-        case supporter = "glassjack.settings.supporterPack"
     }
 
     private let defaults: UserDefaults
@@ -26,13 +24,6 @@ final class SettingsStore: ObservableObject {
         followsClock = defaults.object(forKey: Key.followsClock.rawValue) as? Bool ?? true
         // §11.1: full blur is opt-out, and the device tier check can turn it off on first launch.
         fullGlassBlur = defaults.object(forKey: Key.glassBlur.rawValue) as? Bool ?? DevicePerformance.supportsFullBlur
-        hasSupporterPack = defaults.bool(forKey: Key.supporter.rawValue)
-    }
-
-    /// Marks the one-time Supporter Pack as owned. Cosmetics only — nothing here touches play.
-    func grantSupporterPack() {
-        hasSupporterPack = true
-        defaults.set(true, forKey: Key.supporter.rawValue)
     }
 
     private func persist(_ value: Bool, _ key: Key) {
